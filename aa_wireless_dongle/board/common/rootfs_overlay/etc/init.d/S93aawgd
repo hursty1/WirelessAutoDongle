@@ -17,8 +17,10 @@ case "$1" in
 		fi
 
 		printf "Starting $DAEMON: "
+		/usr/sbin/aawg-logs event android daemon START 'Starting Android Auto diagnostic profile'
 		start-stop-daemon -S -b -q -m -p "$PIDFILE" -x "/usr/bin/$DAEMON"
 		RETVAL=$?
+		/usr/sbin/aawg-logs event android daemon LAUNCH_RESULT "start-stop-daemon exit=$RETVAL"
 		[ $RETVAL = 0 ] && echo "OK" || echo "FAIL"
 		;;
 	stop)

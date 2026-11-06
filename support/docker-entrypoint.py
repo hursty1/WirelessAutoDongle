@@ -45,6 +45,14 @@ def restore_git_metadata(repository):
 
 
 def main():
+    os.environ["AAWG_SOURCE_COMMIT"] = subprocess.check_output([
+        "git", "-c", "safe.directory=/src", "-C", "/src", "rev-parse", "HEAD",
+    ], text=True).strip()
+    changes = subprocess.check_output([
+        "git", "-c", "safe.directory=/src", "-C", "/src", "status",
+        "--porcelain", "--untracked-files=normal", "--ignore-submodules",
+    ], text=True)
+    os.environ["AAWG_SOURCE_DIRTY"] = "yes" if changes.strip() else "no"
     # Exclusions also protect the existing nested volumes from --delete.
     print("Synchronizing sources into the Linux volume...", flush=True)
     subprocess.run([

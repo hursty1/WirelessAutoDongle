@@ -1,0 +1,4 @@
+#!/bin/sh
+# S00persist selects a unique destination before syslog starts.
+[ ! -r /run/aawg-logs/environment ] || . /run/aawg-logs/environment
+SYSLOGD_ARGS="-O ${AAWG_BOOT_LOG_DIR:-/var/log}/system.log -s 768 -b 1"

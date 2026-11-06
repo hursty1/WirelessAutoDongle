@@ -1,0 +1,221 @@
+#!/bin/sh
+# Bounded, per-boot diagnostics. No credentials or packet payloads are collected.
+set -eu
+umask 077
+
+RUNTIME=${AAWG_LOG_RUNTIME:-/run/aawg-logs}
+PERSIST=${AAWG_LOG_PERSIST:-/persist}
+CONFIG=${AAWG_LOG_CONFIG:-/etc/aawgd.conf}
+ROOT=$PERSIST/logs
+KEEP=5
+LIMIT_KB=12288
+FREE_KB=8192
+
+valid_name() {
+    printf '%s\n' "$1" | grep -Eq '^boot-[0-9]{6,}-[0-9a-f-]+$'
+}
+
+directories() {
+    for directory in "$ROOT"/boot-*; do
+        [ -d "$directory" ] && [ ! -L "$directory" ] || continue
+        valid_name "${directory##*/}" || continue
+        printf '%s\n' "$directory"
+    done
+}
+
+current() {
+    [ -L "$RUNTIME/current" ] || { echo 'Logging not initialized' >&2; return 1; }
+    readlink "$RUNTIME/current"
+}
+
+free_kb() {
+    df -Pk "$PERSIST" | awk 'END { print $4 }'
+}
+
+prune() {
+    active=$(current)
+    while :; do
+        count=$(directories | wc -l)
+        used=$(du -sk "$ROOT" | awk '{ print $1 }')
+        available=$(free_kb)
+        if [ "$count" -le "$KEEP" ] && [ "$used" -le "$LIMIT_KB" ] && [ "$available" -ge "$FREE_KB" ]; then
+            return 0
+        fi
+        oldest=''
+        for candidate in $(directories | sort); do
+            [ "$candidate" = "$active" ] && continue
+            oldest=$candidate
+            break
+        done
+        [ -n "$oldest" ] || return 1
+        # Only validated, non-symlink boot directories inside this log root.
+        rm -rf -- "$oldest"
+        echo "Pruned ${oldest##*/}" >> "$RUNTIME/retention.log"
+    done
+}
+
+select_directory() {
+    directory=$1
+    mkdir -p "$directory"
+    ln -sfn "$directory" "$RUNTIME/current"
+    printf "AAWG_BOOT_LOG_DIR='%s'\n" "$directory" > "$RUNTIME/environment.tmp"
+    mv "$RUNTIME/environment.tmp" "$RUNTIME/environment"
+    # Preserve familiar live-log location; syslog opens the actual boot file.
+    if [ "$RUNTIME" = /run/aawg-logs ]; then
+        mkdir -p /var/log
+        ln -sfn "$directory/system.log" /var/log/messages
+    fi
+}
+
+event() {
+    [ "$#" -ge 3 ] || { echo 'event ENDPOINT STAGE OUTCOME [DETAIL]' >&2; return 2; }
+    destination=$(current)
+    # flock is released on process exit, including a crashed writer.
+    (
+        flock -x 9
+        detail=$(printf '%s' "${4:-}" | tr '\r\n\t' '   ' | cut -c 1-512)
+        endpoint=$(printf '%s' "$1" | tr -cd 'a-zA-Z0-9_-')
+        stage=$(printf '%s' "$2" | tr -cd 'a-zA-Z0-9_-')
+        outcome=$(printf '%s' "$3" | tr -cd 'a-zA-Z0-9_-')
+        attempt=$(printf '%s' "${AAWG_LOG_ATTEMPT:-0}" | tr -cd 'a-zA-Z0-9_-')
+        boot_id=$(cat "$RUNTIME/boot-id")
+        elapsed=$(cut -d ' ' -f 1 /proc/uptime)
+        if [ -f "$destination/stages.tsv" ] && [ "$(wc -c < "$destination/stages.tsv")" -ge 131072 ]; then
+            mv "$destination/stages.tsv" "$destination/stages.tsv.0"
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$elapsed" "$boot_id" "$attempt" "$endpoint" "$stage" "$outcome" "$detail" >> "$destination/stages.tsv"
+        printf 'elapsed=%s boot_id=%s attempt=%s endpoint=%s stage=%s outcome=%s detail=%s\n' "$elapsed" "$boot_id" "$attempt" "$endpoint" "$stage" "$outcome" "$detail" > "$destination/summary.txt.tmp"
+        mv "$destination/summary.txt.tmp" "$destination/summary.txt"
+        sync
+    ) 9> "$RUNTIME/event.lock"
+}
+
+snapshot() {
+    destination=$(current)
+    {
+        uname -a
+        echo '--- addresses ---'
+        ip address 2>&1 || true
+        echo '--- routes ---'
+        ip route 2>&1 || true
+        echo '--- storage ---'
+        df -Pk "$PERSIST" 2>&1 || true
+        echo '--- USB controllers ---'
+        for controller in /sys/class/udc/*; do
+            [ -d "$controller" ] || continue
+            echo "${controller##*/}"
+            cat "$controller/state" 2>/dev/null || true
+        done
+    } | head -c 16384 > "$destination/snapshot.txt.tmp"
+    mv "$destination/snapshot.txt.tmp" "$destination/snapshot.txt"
+}
+
+initialize() {
+    mkdir -p "$RUNTIME"
+    boot_id=${AAWG_LOG_BOOT_ID:-$(cat /proc/sys/kernel/random/boot_id)}
+    printf '%s\n' "$boot_id" | grep -Eq '^[0-9a-f-]+$' || return 1
+    if [ -f "$RUNTIME/boot-id" ] && [ "$(cat "$RUNTIME/boot-id")" = "$boot_id" ]; then
+        current >/dev/null
+        return
+    fi
+    enabled=1
+    if [ -r "$CONFIG" ]; then
+        enabled=$(. "$CONFIG"; printf '%s' "${AAWG_PERSISTENT_LOGS:-1}")
+    fi
+    persistent=no
+    # Tests may inject a mountpoint utility, but production always checks the mount.
+    if [ "$enabled" = 1 ] && mountpoint -q "$PERSIST" && [ -w "$PERSIST" ]; then
+        if mkdir -p "$ROOT" && [ ! -L "$ROOT" ] && [ "$(free_kb)" -ge "$FREE_KB" ]; then
+            sequence=0
+            # Recover sequence from folders, not a fragile writable counter file.
+            for previous in $(directories | sort); do
+                number=${previous##*/boot-}
+                number=${number%%-*}
+                number=$(printf '%s' "$number" | sed 's/^0*//')
+                number=${number:-0}
+                [ "$number" -le "$sequence" ] || sequence=$number
+            done
+            name=$(printf 'boot-%06d-%s' "$((sequence + 1))" "$boot_id")
+            if mkdir "$ROOT/$name"; then
+                persistent=yes
+                select_directory "$ROOT/$name"
+                ln -sfn "$name" "$ROOT/latest"
+            fi
+        fi
+    fi
+    if [ "$persistent" != yes ]; then
+        select_directory "$RUNTIME/ram-$boot_id"
+    fi
+    printf '%s\n' "$boot_id" > "$RUNTIME/boot-id"
+    printf '%s\n' "$persistent" > "$RUNTIME/persistent"
+    destination=$(current)
+    {
+        printf 'boot_id=%s\npersistent=%s\n' "$boot_id" "$persistent"
+        printf 'profile=android-logging (CarPlay not implemented)\n'
+        printf 'wall_clock=%s (may be unset; stages use uptime seconds)\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        [ ! -r /etc/aawg-build ] || cat /etc/aawg-build
+        printf 'kernel=%s\n' "$(uname -r)"
+    } > "$destination/boot.txt"
+    # Early kernel events otherwise disappear when the ring buffer wraps.
+    (dmesg 2>/dev/null || true) | tail -c 32768 > "$destination/kernel-start.txt"
+    snapshot
+    if [ "$persistent" = yes ]; then
+        prune || true
+        [ ! -f "$RUNTIME/retention.log" ] || cp "$RUNTIME/retention.log" "$destination/retention.txt"
+    fi
+    event boot logging READY "persistent=$persistent"
+}
+
+watch_logs() {
+    snapshot
+    event boot diagnostics READY 'SSH/AP starts independently of Android USB handshake'
+    while sleep 2; do
+        if [ "$(cat "$RUNTIME/persistent")" = yes ]; then
+            if ! prune; then
+                # Stop new SD writes when reserve is exhausted; keep old logs.
+                previous=$(current)
+                select_directory "$RUNTIME/ram-$(cat "$RUNTIME/boot-id")"
+                destination=$(current)
+                sed 's/^persistent=.*/persistent=no/' "$previous/boot.txt" > "$destination/boot.txt"
+                echo no > "$RUNTIME/persistent"
+                /etc/init.d/S01syslogd restart
+                event boot logging FALLBACK 'Low space or log-area limit; logs now in RAM'
+            fi
+        fi
+        sync
+    done
+}
+
+case "${1:-}" in
+    init) initialize ;;
+    watch) watch_logs ;;
+    event) shift; event "$@" ;;
+    mark) event test marker OK "${2:-manual-marker}" ;;
+    snapshot) snapshot ;;
+    current) current ;;
+    list)
+        active=$(current)
+        printf 'Current: %s\n' "$active"
+        cat "$active/boot.txt"
+        [ ! -r "$active/summary.txt" ] || cat "$active/summary.txt"
+        for directory in $(directories | sort); do
+            [ "$directory" != "$active" ] || continue
+            printf '\n%s\n' "${directory##*/}"
+            cat "$directory/boot.txt"
+            [ ! -r "$directory/summary.txt" ] || cat "$directory/summary.txt"
+        done
+        ;;
+    export)
+        name=${2:-}
+        valid_name "$name" || { echo 'Supply an exact boot name from aawg-logs list' >&2; exit 2; }
+        [ -d "$ROOT/$name" ] && [ ! -L "$ROOT/$name" ] || { echo 'Boot not found' >&2; exit 2; }
+        sync
+        # This firmware's tar has no -z support. Stage the bounded tar in RAM
+        # so tar errors cannot be masked by a successful gzip pipeline.
+        archive=$RUNTIME/export-$$.tar
+        trap 'rm -f "$archive"' EXIT
+        tar -cf "$archive" -C "$ROOT" "$name"
+        gzip -c "$archive"
+        ;;
+    *) echo 'Usage: aawg-logs {init|watch|event|mark [TEXT]|snapshot|current|list|export BOOT-NAME}' >&2; exit 2 ;;
+esac
