@@ -24,7 +24,28 @@ In theory, this can be extended to more hardware in future with these basic requ
 - Should be able to operate on power provided by the car.
 
 ## Install and run
+
+### Validated Android Auto setup in this fork
+
+Android Auto was successfully tested on a Raspberry Pi Zero W v1.1 connected
+to a truck that supports wired Android Auto, with startup in under 30 seconds.
+The successful test used a verified USB data cable connected to the Pi's
+`USB` port and `AAWG_CONNECTION_STRATEGY=2` (USB first). Both the cable and the
+connection strategy changed before the successful test, so their individual
+effects have not been isolated.
+
+New images built from this fork ship with USB-first mode. For an already
+flashed SD card, set `AAWG_CONNECTION_STRATEGY=2` in `aawgd.conf` on the
+`WirelessAA` drive. Keep Bluetooth and Wi-Fi enabled on the phone; pair over
+Bluetooth and let the dongle handle the Wi-Fi connection automatically.
+CarPlay support is planned and is not implemented in this fork yet.
+
+### Obtain an image
+
 [Download a pre-built sd card image](https://github.com/nisargjhaveri/WirelessAndroidAutoDongle/releases) for your board. You can also [build one yourself](BUILDING.md). Install the image on the SD card using your favorite tool.
+
+The download link above provides upstream images; build locally to include
+this fork's changes.
 
 You may want to update the country code and other settings that works best for you. See [Configurations](#Configurations)
 

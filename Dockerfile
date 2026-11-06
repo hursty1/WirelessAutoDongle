@@ -15,6 +15,7 @@ RUN useradd -ms /bin/bash buildroot
 
 RUN mkdir -p /app/buildroot/dl && chown -R buildroot:buildroot /app/buildroot/dl
 RUN mkdir -p /app/buildroot/output && chown -R buildroot:buildroot /app/buildroot/output
+RUN chown buildroot:buildroot /app /app/buildroot
 
 VOLUME /app/buildroot/dl
 VOLUME /app/buildroot/output

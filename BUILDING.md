@@ -7,7 +7,8 @@ If you choose to build without Docker, refer [the Buildroot user manual
 
 ## Clone
 ```shell
-$ git clone --recurse-submodules https://github.com/nisargjhaveri/WirelessAndroidAutoDongle
+$ git clone --recurse-submodules https://github.com/hursty1/WirelessAutoDongle
+$ cd WirelessAutoDongle
 ```
 
 ## Build with Docker
@@ -22,6 +23,26 @@ You can also use the `bash` service for more control over the build process and 
 ```shell
 $ docker compose run --rm bash
 ```
+
+Docker synchronizes the working tree into a Linux `source` volume before each
+run. It restores the symlinks and executable permissions recorded by Git, so
+Windows checkouts with `core.symlinks=false` work too. This includes Buildroot's
+GCC and Linux header hash symlinks and the root filesystem overlay links.
+Source edits, including uncommitted edits, are copied on the next run; Git
+metadata stays on the host. Edit sources in the host checkout: changes made
+only inside `/app` are replaced by the next synchronization. Run builds one at
+a time because the services share the source and output volumes.
+
+The existing `dl` and `output` volumes retain downloads and incremental build
+artifacts. The generated image is copied to the host's `images/` directory.
+Do not use `docker compose down -v` unless you intend to discard these caches.
+After updating the Dockerfile, run `docker compose build` once before building.
+
+If GCC reports `No hash found` even though its checksum is in
+`buildroot/package/gcc/gcc.hash`, check whether
+`package/gcc/gcc-initial/gcc-initial.hash` is a plain file containing
+`../gcc.hash`. It must be a symlink in the Linux build tree. Adding duplicate
+hashes or disabling `BR2_DOWNLOAD_FORCE_CHECK_HASHES` does not fix the checkout.
 
 ## Build with manual setup
 Once you have a recursive clone, you can manually build using the following set of commands.

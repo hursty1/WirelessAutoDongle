@@ -3,10 +3,13 @@ services:
     build: .
     image: aawg-buildroot
     volumes:
-      - .:/app
+      - .:/src:ro
+      - source:/app
       - dl:/app/buildroot/dl
       - output:/app/buildroot/output
+      - ./images:/app/images
     working_dir: /app/buildroot
+    entrypoint: ["python3", "/src/support/docker-entrypoint.py"]
     command: bash
 
   generate_image_donotuse: &generate_image
@@ -39,5 +42,6 @@ services:
       - BOARD_NAME=raspberrypi5
 
 volumes:
+  source:
   dl:
   output:
