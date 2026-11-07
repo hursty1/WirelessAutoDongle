@@ -1,0 +1,17 @@
+#!/bin/sh
+
+if [ "${AAWG_CONF_SOURCED:-}" != 1 ]; then
+    . /etc/aawgd.conf
+fi
+[ "${AAWG_MODE:-android}" = carplay-probe ] || exit 0
+
+case "$1" in
+    start)
+        /usr/sbin/aawg-logs event phone probe START 'Starting Bluetooth/iAP2 probe; no authenticated CarPlay or truck backend'
+        start-stop-daemon -S -b -m -p /run/carplay-probe.pid -x /usr/bin/carplay-probe
+        ;;
+    stop)
+        start-stop-daemon -K -p /run/carplay-probe.pid || true
+        ;;
+    *) echo "Usage: $0 {start|stop}"; exit 1 ;;
+esac

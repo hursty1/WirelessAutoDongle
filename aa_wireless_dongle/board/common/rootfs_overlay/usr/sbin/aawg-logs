@@ -151,7 +151,13 @@ initialize() {
     destination=$(current)
     {
         printf 'boot_id=%s\npersistent=%s\n' "$boot_id" "$persistent"
-        printf 'profile=android-logging (CarPlay not implemented)\n'
+        mode=android
+        [ ! -r "$CONFIG" ] || mode=$(. "$CONFIG"; printf '%s' "${AAWG_MODE:-android}")
+        case "$mode" in
+            android) printf 'profile=android-logging\n' ;;
+            carplay-probe) printf 'profile=carplay-handshake-probe (no authentication or truck backend)\n' ;;
+            *) printf 'profile=unknown\n' ;;
+        esac
         printf 'wall_clock=%s (may be unset; stages use uptime seconds)\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
         [ ! -r /etc/aawg-build ] || cat /etc/aawg-build
         printf 'kernel=%s\n' "$(uname -r)"

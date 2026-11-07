@@ -109,6 +109,17 @@ class BootLoggingTests(unittest.TestCase):
         directory = self.boot(1)
         self.assertTrue(directory.is_relative_to(self.runtime))
 
+    def test_probe_profile_is_identified_and_excludes_android_startup(self):
+        self.config.write_text('AAWG_PERSISTENT_LOGS=1\nAAWG_MODE=carplay-probe\n')
+        directory = self.boot(1)
+        self.assertIn('profile=carplay-handshake-probe', (directory / 'boot.txt').read_text())
+        init = SCRIPT.parents[2] / 'etc/init.d'
+        for name in ('S92usb_gadget', 'S93aawgd'):
+            result = subprocess.run(['sh', str(init / name), 'start'],
+                                    env=dict(self.env, AAWG_CONF_SOURCED='1', AAWG_MODE='carplay-probe'),
+                                    capture_output=True, text=True, check=True)
+            self.assertIn('probe mode', result.stdout.lower())
+
     def test_stage_limit_rotates_and_keeps_latest_summary(self):
         directory = self.boot(1)
         (directory / 'stages.tsv').write_text('x' * 131072)

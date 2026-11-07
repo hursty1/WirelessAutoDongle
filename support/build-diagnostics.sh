@@ -1,6 +1,7 @@
 #!/bin/sh
 # Run through docker compose's bash service; reuse the unchanged Android kernel cache.
 set -eu
+export AAWG_IMAGE_PROFILE=android
 
 board=raspberrypi0w
 build_id="$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%.12s' "${AAWG_SOURCE_COMMIT:-unknown}")"
@@ -10,6 +11,7 @@ destination=$parent/$build_id
 mkdir "$destination"
 
 make BR2_EXTERNAL=../aa_wireless_dongle/ O=output/$board ${board}_defconfig
+make -C output/$board aawg-rebuild
 make -C output/$board
 binary=output/$board/images
 cp "$binary/sdcard.img" "$destination/sdcard.img"

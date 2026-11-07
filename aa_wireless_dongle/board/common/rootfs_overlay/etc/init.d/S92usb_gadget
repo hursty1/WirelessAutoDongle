@@ -16,6 +16,14 @@ PIDFILE="/var/run/$DAEMON.pid"
 
 RETVAL=0
 
+if [ "${AAWG_CONF_SOURCED:-}" != 1 ]; then
+	. /etc/aawgd.conf
+fi
+if [ "${AAWG_MODE:-android}" = carplay-probe ]; then
+	echo 'Skipping Android USB gadgets in CarPlay handshake probe mode'
+	exit 0
+fi
+
 start() {
 	printf "Setting up usb_gadgets: "
 	mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
