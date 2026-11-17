@@ -32,20 +32,14 @@ selection, not automatic switching between phones.
 3. On iPhone 13 Pro Max, open Bluetooth settings and pair with `CarPlay-Probe-*`.
    A cached name from this Pi may still appear; record what the phone displays.
 4. Wait about 30 seconds after the pairing attempt. Note any phone message.
-5. Run `aawg-logs list`, record the boot name, then download that boot as before:
+5. From the repository root on your laptop, download all saved boots in one archive.
 
 ```bash
-mkdir -p ~/dongle-logs
-cd ~/dongle-logs
-BOOT='paste-the-exact-probe-boot-name-here'
-ssh -o HostKeyAlias=carplay-handshake-probe root@10.0.0.1 "aawg-logs export $BOOT" > "$BOOT.tar.gz"
-tar -xzf "$BOOT.tar.gz"
-cat "$BOOT/summary.txt"
-cat "$BOOT/stages.tsv"
-grep -F 'CarPlay probe' "$BOOT/system.log"
+bash support/get-dongle-logs.sh
 ```
 
-Do not reflash before exporting. A failure or missing RFCOMM connection is a
+The script saves a dated `iphone-probe-*.tar.gz` file under `logs/`. Export
+before reflashing. A failure or missing RFCOMM connection is a
 useful result; record it rather than treating ordinary Bluetooth pairing as
 successful CarPlay. Send the archive plus the exact iOS version and phone message.
 If the phone pairs but no RFCOMM event appears, also run `bluetoothctl devices
